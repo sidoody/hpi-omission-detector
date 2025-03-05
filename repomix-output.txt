@@ -216,15 +216,28 @@ File: src/components/OmissionDetector.tsx
 'use client';
 
 import React, { useState } from 'react';
-import { AnalysisResult, Omission } from '@/types';
+import { AnalysisResult, Omission, OmissionSignificance, OmissionType, omissionTypeSignificanceMap } from '@/types';
 
-// Improved utility function to get severity color classes
-function getSeverityColorClasses(severity: Omission['severity']): string {
-  switch (severity) {
+// Utility function to get significance color classes
+function getSignificanceColorClasses(significance: OmissionSignificance): string {
+  switch (significance) {
     case 'Critical': return 'bg-red-100 text-red-800 border border-red-200';
-    case 'Major': return 'bg-orange-100 text-orange-800 border border-orange-200';
+    case 'High': return 'bg-orange-100 text-orange-800 border border-orange-200';
     case 'Moderate': return 'bg-yellow-100 text-yellow-800 border border-yellow-200';
     case 'Minor': return 'bg-blue-100 text-blue-800 border border-blue-200';
+    default: return 'bg-gray-100 text-gray-800 border border-gray-200';
+  }
+}
+
+// Utility function to get type badge color
+function getTypeColorClasses(type: OmissionType): string {
+  switch (type) {
+    case 'Recent medical events': return 'bg-purple-100 text-purple-800 border border-purple-200';
+    case 'Omission of Symptoms': return 'bg-indigo-100 text-indigo-800 border border-indigo-200';
+    case 'Medication Omission': return 'bg-green-100 text-green-800 border border-green-200';
+    case 'Symptom details and characteristics': return 'bg-teal-100 text-teal-800 border border-teal-200';
+    case 'People involved in interaction': return 'bg-pink-100 text-pink-800 border border-pink-200';
+    case 'Documentation style': return 'bg-gray-100 text-gray-800 border border-gray-200';
     default: return 'bg-gray-100 text-gray-800 border border-gray-200';
   }
 }
@@ -268,6 +281,39 @@ export default function OmissionDetector() {
     setHpi('');
     setResult(null);
     setActiveTab('input');
+  };
+
+  // Function to count omissions by significance level
+  const countBySignificance = (significance: OmissionSignificance): number => {
+    if (!result) return 0;
+    return result.omissions.filter(o => 
+      omissionTypeSignificanceMap[o.type as OmissionType] === significance
+    ).length;
+  };
+
+  // Function to sort omissions by significance
+  const getSortedOmissions = () => {
+    if (!result) return [];
+    
+    // Create a copy of the omissions array
+    const sortedOmissions = [...result.omissions];
+    
+    // Define significance priority order
+    const significancePriority = {
+      'Critical': 0,
+      'High': 1,
+      'Moderate': 2,
+      'Minor': 3
+    };
+    
+    // Sort by significance
+    sortedOmissions.sort((a, b) => {
+      const aSig = omissionTypeSignificanceMap[a.type as OmissionType] as keyof typeof significancePriority;
+      const bSig = omissionTypeSignificanceMap[b.type as OmissionType] as keyof typeof significancePriority;
+      return significancePriority[aSig] - significancePriority[bSig];
+    });
+    
+    return sortedOmissions;
   };
 
   return (
@@ -366,30 +412,37 @@ export default function OmissionDetector() {
                 <div>
                   <h3 className="text-xl font-medium mb-4 text-gray-800 border-b pb-2">Detailed Omission Analysis</h3>
                   {result.omissions.length > 0 ? (
-                    result.omissions.map((omission, index) => (
-                      <div key={index} className="border rounded-lg p-5 mb-5 bg-white shadow-sm hover:shadow-md transition-shadow">
-                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-3">
-                          <h4 className="font-medium text-lg text-gray-800">{omission.type}</h4>
-                          <span className={`${getSeverityColorClasses(omission.severity)} px-3 py-1 rounded-full text-sm font-medium inline-block text-center`}>
-                            {omission.severity}
-                          </span>
+                    getSortedOmissions().map((omission, index) => {
+                      const significance = omissionTypeSignificanceMap[omission.type as OmissionType];
+                      return (
+                        <div key={index} className="border rounded-lg p-5 mb-5 bg-white shadow-sm hover:shadow-md transition-shadow">
+                          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-3">
+                            <div className="flex flex-wrap gap-2 items-center">
+                              <span className={`${getTypeColorClasses(omission.type as OmissionType)} px-3 py-1 rounded-full text-sm font-medium inline-block text-center`}>
+                                {omission.type}
+                              </span>
+                              <span className={`${getSignificanceColorClasses(significance)} px-3 py-1 rounded-full text-sm font-medium inline-block text-center`}>
+                                {significance}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="space-y-3 mt-3">
+                            <div>
+                              <span className="font-medium text-gray-700">Description:</span> 
+                              <p className="mt-1 text-gray-700">{omission.description}</p>
+                            </div>
+                            <div className="bg-gray-50 p-4 rounded-lg border-l-4 border-gray-300 my-3">
+                              <span className="font-medium text-gray-700">Evidence:</span> 
+                              <p className="mt-1 text-gray-600 italic">"{omission.evidence}"</p>
+                            </div>
+                            <div>
+                              <span className="font-medium text-gray-700">Recommendation:</span> 
+                              <p className="mt-1 text-gray-700">{omission.recommendation}</p>
+                            </div>
+                          </div>
                         </div>
-                        <div className="space-y-3 mt-3">
-                          <div>
-                            <span className="font-medium text-gray-700">Description:</span> 
-                            <p className="mt-1 text-gray-700">{omission.description}</p>
-                          </div>
-                          <div className="bg-gray-50 p-4 rounded-lg border-l-4 border-gray-300 my-3">
-                            <span className="font-medium text-gray-700">Evidence:</span> 
-                            <p className="mt-1 text-gray-600 italic">"{omission.evidence}"</p>
-                          </div>
-                          <div>
-                            <span className="font-medium text-gray-700">Recommendation:</span> 
-                            <p className="mt-1 text-gray-700">{omission.recommendation}</p>
-                          </div>
-                        </div>
-                      </div>
-                    ))
+                      );
+                    })
                   ) : (
                     <div className="p-5 border rounded-lg bg-green-50 text-green-800">
                       No omissions detected. The HPI appears complete.
@@ -407,29 +460,34 @@ export default function OmissionDetector() {
                 {result.omissions.length > 0 && (
                   <div className="border-t pt-4">
                     <h3 className="text-lg font-medium mb-4 text-gray-800">Analysis Summary</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                       <div className="bg-white p-4 rounded-lg shadow-sm text-center border border-gray-100">
                         <div className="text-2xl font-bold text-gray-800">{result.omissions.length}</div>
                         <div className="text-sm text-gray-500">Total Omissions</div>
                       </div>
                       <div className="bg-white p-4 rounded-lg shadow-sm text-center border-l-4 border-red-500">
                         <div className="text-2xl font-bold text-red-700">
-                          {result.omissions.filter(o => o.severity === "Critical").length}
+                          {countBySignificance('Critical')}
                         </div>
                         <div className="text-sm text-gray-500">Critical</div>
                       </div>
                       <div className="bg-white p-4 rounded-lg shadow-sm text-center border-l-4 border-orange-500">
                         <div className="text-2xl font-bold text-orange-700">
-                          {result.omissions.filter(o => o.severity === "Major").length}
+                          {countBySignificance('High')}
                         </div>
-                        <div className="text-sm text-gray-500">Major</div>
+                        <div className="text-sm text-gray-500">High</div>
                       </div>
                       <div className="bg-white p-4 rounded-lg shadow-sm text-center border-l-4 border-yellow-500">
                         <div className="text-2xl font-bold text-yellow-700">
-                          {result.omissions.filter(o => o.severity === "Moderate").length + 
-                          result.omissions.filter(o => o.severity === "Minor").length}
+                          {countBySignificance('Moderate')}
                         </div>
-                        <div className="text-sm text-gray-500">Moderate/Minor</div>
+                        <div className="text-sm text-gray-500">Moderate</div>
+                      </div>
+                      <div className="bg-white p-4 rounded-lg shadow-sm text-center border-l-4 border-blue-500">
+                        <div className="text-2xl font-bold text-blue-700">
+                          {countBySignificance('Minor')}
+                        </div>
+                        <div className="text-sm text-gray-500">Minor</div>
                       </div>
                     </div>
                   </div>
@@ -477,6 +535,49 @@ export default function OmissionDetector() {
             <li>Review the detailed analysis with evidence from the transcript</li>
           </ol>
         </div>
+
+        {/* Categorization Framework Legend */}
+        <div className="mt-4 p-4 bg-white rounded-lg border border-blue-200 shadow-sm">
+          <h4 className="font-medium mb-2 flex items-center text-gray-800">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600 mr-2" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+            </svg>
+            Omission Categorization Framework
+          </h4>
+          <div className="mt-2 space-y-3">
+            <div className="space-y-2">
+              <h5 className="font-medium text-sm text-gray-700">Significance Levels by Omission Type:</h5>
+              
+              <div className="flex items-center gap-2">
+                <span className="bg-red-100 text-red-800 border border-red-200 px-3 py-1 rounded-full text-xs">Critical</span>
+                <span className="text-xs text-gray-600">-</span>
+                <div className="flex flex-wrap gap-1">
+                  <span className="bg-purple-100 text-purple-800 border border-purple-200 px-2 py-0.5 rounded-full text-xs">Recent medical events</span>
+                  <span className="bg-indigo-100 text-indigo-800 border border-indigo-200 px-2 py-0.5 rounded-full text-xs">Omission of Symptoms</span>
+                  <span className="bg-green-100 text-green-800 border border-green-200 px-2 py-0.5 rounded-full text-xs">Medication Omission</span>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <span className="bg-orange-100 text-orange-800 border border-orange-200 px-3 py-1 rounded-full text-xs">High</span>
+                <span className="text-xs text-gray-600">-</span>
+                <span className="bg-teal-100 text-teal-800 border border-teal-200 px-2 py-0.5 rounded-full text-xs">Symptom details and characteristics</span>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <span className="bg-yellow-100 text-yellow-800 border border-yellow-200 px-3 py-1 rounded-full text-xs">Moderate</span>
+                <span className="text-xs text-gray-600">-</span>
+                <span className="bg-pink-100 text-pink-800 border border-pink-200 px-2 py-0.5 rounded-full text-xs">People involved in interaction</span>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <span className="bg-blue-100 text-blue-800 border border-blue-200 px-3 py-1 rounded-full text-xs">Minor</span>
+                <span className="text-xs text-gray-600">-</span>
+                <span className="bg-gray-100 text-gray-800 border border-gray-200 px-2 py-0.5 rounded-full text-xs">Documentation style</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -485,8 +586,9 @@ export default function OmissionDetector() {
 ================
 File: src/services/openai-service.ts
 ================
+// src/services/openai-service.ts
 import OpenAI from 'openai';
-import { AnalysisResult } from '@/types';
+import { AnalysisResult, OmissionType } from '@/types';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -500,47 +602,40 @@ export async function detectOmissions(transcript: string, hpi: string): Promise<
         role: "system",
         content: `You are an expert clinical documentation specialist focused on identifying clinically significant omissions in medical documentation. Your task is to compare a clinical encounter transcript with a generated History of Present Illness (HPI) and identify important clinical information that appears in the transcript but is missing from the HPI.
 
-FOCUS AREAS: Based on actual clinician feedback, prioritize these specific types of omissions:
+CATEGORIZATION FRAMEWORK:
+Each omission must be categorized using ONLY one of these exact omission types:
 
-1. RECENT MEDICAL EVENTS: Emergency department visits, hospitalizations, or other significant healthcare encounters mentioned in the transcript but not captured in the HPI. These are often critical omissions.
+1. OMISSION TYPES (EXACTLY as listed below - do not modify or add new types):
+   - "Recent medical events": Emergency department visits, hospitalizations, or other significant healthcare encounters
+   - "Omission of Symptoms": Key symptoms discussed but missing from the HPI (especially shortness of breath, pain, fatigue)
+   - "Medication Omission": Missing details about medications discussed, especially recent changes or specific medications like inhalers
+   - "Symptom details and characteristics": Details about what makes symptoms better or worse, timing, specific locations, or other modifiers
+   - "People involved in interaction": Missing information about who was present or involved in care (interpreters, family members)
+   - "Documentation style": Stylistic or formatting issues in the documentation
 
-2. KEY SYMPTOMS: Symptoms discussed at length during the encounter (especially shortness of breath, pain, fatigue) that are completely missing from or contradicted in the HPI.
-
-3. SYMPTOM CHARACTERISTICS: Details about what makes symptoms better or worse, timing of symptoms, specific locations, or other modifiers that help characterize symptoms.
-
-4. MEDICATION INFORMATION: Missing details about medications discussed, especially recent changes, side effects, or specific medications like inhalers that may be relevant to current symptoms.
-
-5. RED FLAG SYMPTOMS: Any "red flag" symptoms that were specifically asked about or mentioned (like chest pain) but not documented in the HPI.
-
-6. PROCEDURAL ELEMENTS: Critical procedural information like interpreter services, if mentioned in the transcript.
+EXAMPLES OF OMISSIONS BY TYPE:
+- Recent medical events: "Visit to ER omitted"
+- Omission of Symptoms: "Shortness of Breath and fatigue symptoms omitted"
+- Medication Omission: "Missed information about Tamsulosin" or "No mention of inhalers in HPI"
+- Symptom details and characteristics: "Lower leg pain details omitted"
+- People involved in interaction: "Daughter not present, but HPI said she was" or "Omitted spanish interpreter number"
+- Documentation style: "A1c belongs in A/P not subjective"
 
 IMPORTANT GUIDELINES:
 - Focus ONLY on information present in the transcript but missing from the HPI
 - Prioritize clinical information that would impact medical decision-making
-- Look specifically for details clinicians highlighted as important in feedback
 - Identify specific, precise information rather than general categories
 - Include direct quotes from the transcript as evidence
 - For each omission, explain exactly what is missing and why it matters clinically
-
-IMPORTANT: Use ONLY these exact severity classifications:
-- "Critical" (capitalize only the first letter)
-- "Major" (capitalize only the first letter)
-- "Moderate" (capitalize only the first letter)
-- "Minor" (capitalize only the first letter)
-
-SEVERITY DEFINITIONS:
-- Critical: Recent medical events (ER visits), major symptoms entirely missing, or red flag symptoms not documented
-- Major: Important clinical details about symptoms or medications that significantly impact assessment
-- Moderate: Relevant but less critical clinical information
-- Minor: Supplementary information that would enhance the HPI but is not essential
+- Categorize each omission using ONLY the predefined omission types listed above
+- DO NOT add your own omission types - use ONLY the exact terms provided above
 
 Format your response as JSON:
 {
   "summary": "Brief focus on the most important clinical omissions",
   "omissions": [
     {
-      "type": "Omission category from the focus areas list",
-      "severity": "Critical|Major|Moderate|Minor",
+      "type": "One of the exact omission types from the list above",
       "description": "Specific information missing from the HPI",
       "evidence": "Direct quote from transcript showing the omitted information",
       "recommendation": "How this should be documented in the HPI"
@@ -575,24 +670,44 @@ Format your response as JSON:
 ================
 File: src/types/index.ts
 ================
+// src/types/index.ts
+export type OmissionType = 
+  'Recent medical events' | 
+  'Omission of Symptoms' | 
+  'Medication Omission' | 
+  'Symptom details and characteristics' | 
+  'People involved in interaction' | 
+  'Documentation style';
+
+export type OmissionSignificance = 'Critical' | 'High' | 'Moderate' | 'Minor';
+
+// Mapping between omission types and their significance
+export const omissionTypeSignificanceMap: Record<OmissionType, OmissionSignificance> = {
+  'Recent medical events': 'Critical',
+  'Omission of Symptoms': 'Critical',
+  'Medication Omission': 'Critical',
+  'Symptom details and characteristics': 'High',
+  'People involved in interaction': 'Moderate',
+  'Documentation style': 'Minor'
+};
+
 export interface Omission {
-    type: string;
-    severity: 'Critical' | 'Major' | 'Moderate' | 'Minor';
-    description: string;
-    evidence: string;
-    recommendation: string;
-  }
+  type: OmissionType;
+  description: string;
+  evidence: string;
+  recommendation: string;
+}
+
+export interface AnalysisResult {
+  summary: string;
+  omissions: Omission[];
+  assessment: string;
+}
   
-  export interface AnalysisResult {
-    summary: string;
-    omissions: Omission[];
-    assessment: string;
-  }
-  
-  export interface AnalysisRequest {
-    transcript: string;
-    hpi: string;
-  }
+export interface AnalysisRequest {
+  transcript: string;
+  hpi: string;
+}
 
 ================
 File: .gitignore
