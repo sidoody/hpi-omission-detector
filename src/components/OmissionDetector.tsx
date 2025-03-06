@@ -32,7 +32,16 @@ export default function OmissionDetector() {
   const [hpi, setHpi] = useState<string>('');
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'input' | 'results'>('input');
+  const [activeTab, setActiveTab] = useState<'input' | 'results' | 'updated-hpi'>('input');
+  
+  // New state to track which omissions have been added to the HPI
+  const [addedOmissions, setAddedOmissions] = useState<Set<number>>(new Set());
+  // New state to store the updated HPI
+  const [updatedHpi, setUpdatedHpi] = useState<string>('');
+  // State to track which omission is being added
+  const [addingOmissionIndex, setAddingOmissionIndex] = useState<number | null>(null);
+  // State to highlight recently added content
+  const [recentlyAdded, setRecentlyAdded] = useState<{ index: number, content: string } | null>(null);
 
   const analyzeOmissions = async () => {
     setLoading(true);
@@ -53,6 +62,13 @@ export default function OmissionDetector() {
       const resultData = await response.json() as AnalysisResult;
       setResult(resultData);
       setActiveTab('results');
+      
+      // Initialize the updated HPI with the original HPI
+      setUpdatedHpi(hpi);
+      // Reset added omissions
+      setAddedOmissions(new Set());
+      // Reset recently added content
+      setRecentlyAdded(null);
     } catch (error) {
       console.error('Error:', error);
       alert('Error analyzing documents. Please try again.');
@@ -66,6 +82,59 @@ export default function OmissionDetector() {
     setHpi('');
     setResult(null);
     setActiveTab('input');
+    setAddedOmissions(new Set());
+    setUpdatedHpi('');
+    setRecentlyAdded(null);
+  };
+
+  // Function to add an omission to the HPI using the new API
+  const addOmissionToHpi = async (omission: Omission, index: number) => {
+    if (addedOmissions.has(index) || addingOmissionIndex !== null) {
+      return; // Already added or another one is in progress
+    }
+    
+    setAddingOmissionIndex(index);
+    
+    try {
+      // Use the new API to intelligently integrate the omission
+      const response = await fetch('/api/integrate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          hpi: updatedHpi, // Use the most current version of HPI
+          omission
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Integration failed');
+      }
+      
+      const data = await response.json();
+      const integratedHpi = data.updatedHpi;
+      
+      // Track what was added for highlighting
+      setRecentlyAdded({
+        index,
+        content: omission.recommendation
+      });
+      
+      // Create a new set with the added omission index
+      const newAddedOmissions = new Set(addedOmissions);
+      newAddedOmissions.add(index);
+      setAddedOmissions(newAddedOmissions);
+      
+      // Update the HPI with the integrated content
+      setUpdatedHpi(integratedHpi);
+      
+    } catch (error) {
+      console.error('Error:', error);
+      alert('Error integrating omission into HPI. Please try again.');
+    } finally {
+      setAddingOmissionIndex(null);
+    }
   };
 
   // Function to count omissions by significance level
@@ -101,6 +170,112 @@ export default function OmissionDetector() {
     return sortedOmissions;
   };
 
+  // Function to find differences between original and updated HPI
+  const findTextDifferences = (text1: string, text2: string): { text: string, added: boolean }[] => {
+    // Split by paragraphs to maintain structure
+    const paragraphs1 = text1.split('\n\n').filter(p => p.trim());
+    const paragraphs2 = text2.split('\n\n').filter(p => p.trim());
+    
+    const result: { text: string, added: boolean }[] = [];
+    
+    // Special case: if the entire text is new (first time analysis)
+    if (!text1 && text2) {
+      return [{ text: text2, added: true }];
+    }
+    
+    // Track which paragraphs in the original have been matched
+    const matchedParagraphs = new Set<number>();
+    
+    // For each paragraph in the updated text, try to find a match in the original
+    for (let i = 0; i < paragraphs2.length; i++) {
+      const currentParagraph = paragraphs2[i];
+      
+      // Try to find this paragraph in the original text
+      let foundMatch = false;
+      
+      for (let j = 0; j < paragraphs1.length; j++) {
+        // Skip already matched paragraphs
+        if (matchedParagraphs.has(j)) continue;
+        
+        // If paragraphs are identical or very similar
+        if (paragraphs1[j] === currentParagraph) {
+          result.push({ text: currentParagraph, added: false });
+          matchedParagraphs.add(j);
+          foundMatch = true;
+          break;
+        }
+      }
+      
+      // If no match found, this is likely new content
+      if (!foundMatch) {
+        result.push({ text: currentParagraph, added: true });
+      }
+    }
+    
+    return result;
+  };
+
+  // Advanced rendering for highlighting changes
+  const renderHighlightedHPI = () => {
+    if (!hpi || !updatedHpi) return null;
+    
+    // Split by paragraphs to maintain structure
+    const paragraphs1 = hpi.split('\n\n').filter(p => p.trim());
+    const paragraphs2 = updatedHpi.split('\n\n').filter(p => p.trim());
+    
+    const result = [];
+    
+    // Track which paragraphs from original have been matched
+    const matchedParagraphs = new Set<number>();
+    
+    // Process each paragraph in the updated HPI
+    for (let i = 0; i < paragraphs2.length; i++) {
+      const para = paragraphs2[i];
+      
+      // Check if this paragraph exists in the original
+      let matched = false;
+      
+      for (let j = 0; j < paragraphs1.length; j++) {
+        if (matchedParagraphs.has(j)) continue;
+        
+        if (paragraphs1[j] === para) {
+          // Exact match - no highlighting
+          result.push(
+            <p key={`para-${i}`} className="mb-4">
+              {para}
+            </p>
+          );
+          matchedParagraphs.add(j);
+          matched = true;
+          break;
+        } 
+        // Check if this is a paragraph that has been modified
+        else if (para.includes(paragraphs1[j]) || paragraphs1[j].includes(para)) {
+          // Modified paragraph - light purple highlight
+          result.push(
+            <p key={`para-${i}`} className="mb-4 bg-purple-50/50 text-purple-950 rounded-sm px-1">
+              {para}
+            </p>
+          );
+          matchedParagraphs.add(j);
+          matched = true;
+          break;
+        }
+      }
+      
+      // If no match found, this is a new paragraph
+      if (!matched) {
+        result.push(
+          <p key={`para-${i}`} className="mb-4 bg-purple-50 text-purple-900 rounded-sm px-1">
+            {para}
+          </p>
+        );
+      }
+    }
+    
+    return <>{result}</>;
+  };
+
   return (
     <div className="flex flex-col w-full max-w-4xl mx-auto p-4 space-y-4">
       {/* Main Card */}
@@ -126,6 +301,13 @@ export default function OmissionDetector() {
               disabled={!result}
             >
               Results
+            </button>
+            <button 
+              className={`px-6 py-3 font-medium text-base transition-colors ${activeTab === 'updated-hpi' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}
+              onClick={() => result && setActiveTab('updated-hpi')}
+              disabled={!result}
+            >
+              Updated HPI
             </button>
           </div>
         </div>
@@ -183,7 +365,7 @@ export default function OmissionDetector() {
               </button>
             </div>
           </>
-        ) : (
+        ) : activeTab === 'results' ? (
           result && (
             <>
               <div className="p-6 space-y-6">
@@ -199,6 +381,8 @@ export default function OmissionDetector() {
                   {result.omissions.length > 0 ? (
                     getSortedOmissions().map((omission, index) => {
                       const significance = omissionTypeSignificanceMap[omission.type as OmissionType];
+                      const isAdded = addedOmissions.has(index);
+                      
                       return (
                         <div key={index} className="border rounded-lg p-5 mb-5 bg-white shadow-sm hover:shadow-md transition-shadow">
                           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-3">
@@ -210,6 +394,26 @@ export default function OmissionDetector() {
                                 {significance}
                               </span>
                             </div>
+                            {/* Add to HPI button */}
+                            <button
+                              onClick={() => addOmissionToHpi(omission, index)}
+                              disabled={isAdded || addingOmissionIndex !== null}
+                              className={`px-4 py-2 rounded-md text-white font-medium relative ${isAdded ? 'bg-purple-300 cursor-not-allowed' : addingOmissionIndex === index ? 'bg-purple-500' : 'bg-purple-600 hover:bg-purple-700'}`}
+                            >
+                              {addingOmissionIndex === index ? (
+                                <>
+                                  <span className="opacity-0">Adding to HPI</span>
+                                  <div className="absolute inset-0 flex items-center justify-center">
+                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                                    <span>Adding...</span>
+                                  </div>
+                                </>
+                              ) : isAdded ? (
+                                'Added to HPI'
+                              ) : (
+                                'Add to HPI'
+                              )}
+                            </button>
                           </div>
                           <div className="space-y-3 mt-3">
                             <div>
@@ -286,6 +490,70 @@ export default function OmissionDetector() {
                 >
                   Back to Input
                 </button>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setActiveTab('updated-hpi')}
+                    className={`px-6 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors font-medium ${addedOmissions.size === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    disabled={addedOmissions.size === 0}
+                  >
+                    View Updated HPI
+                  </button>
+                  <button 
+                    onClick={resetForm}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors font-medium"
+                  >
+                    Start New Analysis
+                  </button>
+                </div>
+              </div>
+            </>
+          )
+        ) : (
+          result && (
+            <>
+              <div className="p-6 space-y-6">
+                <div>
+                  <h3 className="text-xl font-medium mb-3 text-gray-800 border-b pb-2">Compare Original and Updated HPI</h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <h4 className="font-medium mb-3 text-gray-700">Original</h4>
+                      <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 whitespace-pre-line font-mono text-sm h-96 overflow-auto">
+                        {hpi}
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <h4 className="font-medium mb-3 text-gray-700">Updated <span className="text-xs ml-2 text-purple-600">({addedOmissions.size} {addedOmissions.size === 1 ? 'change' : 'changes'})</span></h4>
+                      <div className="bg-white p-4 rounded-lg border border-gray-200 whitespace-pre-line font-mono text-sm h-96 overflow-auto">
+                        {renderHighlightedHPI()}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {recentlyAdded && (
+                    <div className="mt-4 p-4 bg-purple-50 rounded-lg border border-purple-100">
+                      <h4 className="font-medium text-purple-800 mb-2 flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                        </svg>
+                        Last Addition
+                      </h4>
+                      <div className="text-sm text-purple-700">
+                        <p className="font-medium">Added from: "{recentlyAdded.content}"</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              <div className="p-4 bg-gray-50 flex justify-between border-t">
+                <button 
+                  onClick={() => setActiveTab('results')}
+                  className="px-4 py-2 border rounded-md hover:bg-gray-100 transition-colors font-medium text-gray-600"
+                >
+                  Back to Results
+                </button>
                 <button 
                   onClick={resetForm}
                   className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors font-medium"
@@ -317,7 +585,9 @@ export default function OmissionDetector() {
             <li className="mb-1">Paste a clinical transcript in the first box</li>
             <li className="mb-1">Paste the corresponding HPI in the second box</li>
             <li className="mb-1">Click "Analyze Omissions" to detect gaps and inconsistencies</li>
-            <li>Review the detailed analysis with evidence from the transcript</li>
+            <li className="mb-1">Review the detailed analysis with evidence from the transcript</li>
+            <li className="mb-1">Click "Add to HPI" on any omissions you want to include</li>
+            <li>View the Updated HPI tab to see your enhanced documentation</li>
           </ol>
         </div>
 
