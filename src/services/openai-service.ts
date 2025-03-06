@@ -8,7 +8,7 @@ const openai = new OpenAI({
 
 export async function detectOmissions(transcript: string, hpi: string): Promise<AnalysisResult> {
   const response = await openai.chat.completions.create({
-    model: "gpt-4-turbo",
+    model: "gpt-4o",
     messages: [
       {
         role: "system",
@@ -78,3 +78,47 @@ Format your response as JSON:
     };
   }
 }
+
+// New function to integrate omissions into HPI
+export async function integrateOmissionIntoHpi(hpi: string, omission: any): Promise<string> {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: `You are an expert medical documentation specialist. Your task is to integrate missing information into a History of Present Illness (HPI) document naturally, as if it had been included from the beginning. 
+  
+  IMPORTANT GUIDELINES:
+  - Maintain the original style and tone of the HPI and make any new addition very concise.
+  - Insert the new information in a location that makes logical sense based on the omission type
+  - Make any necessary grammatical adjustments to ensure the text flows naturally
+  - Make the additions concise (1-2 sentence max)
+  - Return the entire updated HPI with the new information integrated
+  - Do NOT add any markers, highlights, or indications that content was added - this should look like one cohesive document
+  - Return ONLY the updated HPI text, no explanation or commentary`
+        },
+        {
+          role: "user",
+          content: `Original HPI:
+  ${hpi}
+  
+  Omission Information:
+  Type: ${omission.type}
+  Description: ${omission.description}
+  Evidence from transcript: "${omission.evidence}"
+  Recommendation: ${omission.recommendation}
+  
+  Please integrate this information naturally into the HPI document.`
+        }
+      ],
+      temperature: 0.1,
+      max_tokens: 2000
+    });
+  
+    try {
+      return response.choices[0].message.content || hpi;
+    } catch (error) {
+      console.error("Error integrating omission:", error);
+      return hpi;
+    }
+  }
